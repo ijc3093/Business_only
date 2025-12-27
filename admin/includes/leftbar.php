@@ -1,70 +1,97 @@
-<?php 
-	if(!isset($_SESSION['userRole'])){
-		switch($_SESSION['userRole']){
-		  case 1:
-		  case 2:
-		  case 3:
-		  case 4:
-			echo '<script>window.location.replace("index.php");</script>';
-			break;
-		  default:
-			break;
-		}
-	  }
-
-?>
-<nav class="ts-sidebar">
-<ul class="ts-sidebar-menu">
 <?php
-				$userRole = $_SESSION['userRole'];
-				if( empty($userRole) ){
-					echo "<script>alert('User Role is empty');</script>";
-				}  
-				//Admin
-                //Notice that #1 is not in $_SESSION[...] and why? because if #1 is not there, it meant that #1 as Admin can access all nav in the left.
-                //Notice that #2, 3, 4 are still in $_SESSION[...] and why? because they are unable to access admin's page.
-                if($userRole == 2 || $userRole == 3 || $userRole == 4){
-                    //
-                }else{
-					echo '<li><a href="profile.php"><i class="fa fa-user"></i> &nbsp;Profile</a></li>';
-					echo '<li><a href="dashboard.php"><i class="fa fa-dashboard"></i> Dashboard</a></li>';
-					echo '<li><a href="roleslist.php"><i class="fa fa-dashboard"></i> Roles</a></li>';
-					echo '<li><a href="userlist.php"><i class="fa fa-users"></i> Userlist</a></li>';
-					echo '<li><a href="feedback.php"><i class="fa fa-envelope"></i> &nbsp;Feedback</a></li>';
-					echo '<li><a href="notification.php"><i class="fa fa-bell"></i> &nbsp;Notification <sup style="color:red">*</sup></a></li>';
-					echo '<li><a href="deleteduser.php"><i class="fa fa-user-times"></i> &nbsp;Deleted Users</a></li>';
-					echo '<li><a href="download.php"><i class="fa fa-download"></i> &nbsp;Download Users-List</a></li>';
-				}
+// /Business_only/admin/includes/leftbar.php
 
-				//Manager
-                //manager.php
-                if($userRole == 1 || $userRole == 3 || $userRole == 4){
-                    //
-                }else{
-					echo '<li><a href="profile.php"><i class="fa fa-user"></i> &nbsp;Profile</a></li>';
-                    echo '<li><a href="manager.php"><i class="fa fa-user"></i> Manager</a></li>';
-					echo '<li><a href="dashboard.php"><i class="fa fa-dashboard"></i> Dashboard</a></li>';
-					echo '<li><a href="feedback_.php"><i class="fa fa-envelope"></i> Feedback</a></li>';
-					echo '<li><a href="messages_.php"><i class="fa fa-user-times"></i> Messages</a></li>';
-					echo '<li><a href="notification_.php"><i class="fa fa fa-bell"></i> Notification</a></li>';
-                }
+require_once __DIR__ . '/session_admin.php';
+requireAdminLogin();
 
-				//Staff
-                //staff.php
-                if($userRole == 1 || $userRole == 2 || $userRole == 3){
-                    //
-                }else{
-					echo '<li><a href="profile.php"><i class="fa fa-user"></i> &nbsp;Profile</a></li>';
-                    echo '<li><a href="staff.php"><i class="fa fa-user"></i>Staff</a></li>';
-					echo '<li><a href="dashboard.php"><i class="fa fa-dashboard"></i>Dashboard</a></li>';
-					echo '<li><a href="feedback_.php"><i class="fa fa-envelope"></i>Feedback</a></li>';
-					echo '<li><a href="messages_.php"><i class="fa fa-user-times"></i>Messages</a></li>';
-					echo '<li><a href="notification_.php"><i class="fa fa fa-bell"></i>Notification</a></li>';
-                }
-				
+require_once __DIR__ . '/../controller.php';
 
+$controller = new Controller();
+$dbh = $controller->pdo();
+
+// Role id from admin session
+$roleId = (int)($_SESSION['userRole'] ?? 0);
+
+// Default role name
+$roleName = 'Unknown';
+
+if ($roleId > 0) {
+    $sql = "SELECT name FROM role WHERE idrole = :id LIMIT 1";
+    $stmt = $dbh->prepare($sql);
+    $stmt->execute([':id' => $roleId]);
+    $roleName = $stmt->fetchColumn() ?: 'Unknown';
+}
+
+$roleKey = strtolower(trim($roleName));
+
+function roleIs(string $roleKey, string $expected): bool {
+    return $roleKey === strtolower($expected);
+}
+
+function roleIn(string $roleKey, array $list): bool {
+    $list = array_map(fn($x) => strtolower(trim($x)), $list);
+    return in_array($roleKey, $list, true);
+}
 ?>
-</ul>
-</nav>
 
-		
+<nav class="ts-sidebar">
+    <ul class="ts-sidebar-menu">
+
+        <li class="ts-label">
+            <?php echo htmlspecialchars($roleName); ?> Menu
+        </li>
+
+        <li>
+            <a href="dashboard.php">
+                <i class="fa fa-dashboard"></i> Dashboard
+            </a>
+        </li>
+
+        <li>
+            <a href="adminroles.php">
+                <i class="fa fa-id-badge"></i> List Roles & Accounts
+            </a>
+        </li>
+
+        <?php if (roleIs($roleKey, 'admin')): ?>
+            <li>
+                <a href="roleslist.php">
+                    <i class="fa fa-users"></i> List & Add New Role
+                </a>
+            </li>
+
+            <li>
+                <a href="userlist.php">
+                    <i class="fa fa-user"></i> User List
+                </a>
+            </li>
+        <?php endif; ?>
+
+        <?php if (roleIn($roleKey, ['admin', 'manager', 'teacher'])): ?>
+            <li>
+                <a href="feedback.php">
+                    <i class="fa fa-comments"></i> Feedback
+                </a>
+            </li>
+
+            <li>
+                <a href="notification.php">
+                    <i class="fa fa-bell"></i> Notifications
+                </a>
+            </li>
+        <?php endif; ?>
+
+        <li>
+            <a href="profile.php">
+                <i class="fa fa-user-circle"></i> My Profile
+            </a>
+        </li>
+
+        <li>
+            <a href="logout.php">
+                <i class="fa fa-sign-out"></i> Logout
+            </a>
+        </li>
+
+    </ul>
+</nav>

@@ -1,74 +1,79 @@
 <?php
-    include('./controller.php');
+require_once __DIR__ . '/includes/session_admin.php';
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-    // ✅ FIX: correct path from root register.php to admin session helper
-    include('../admin/includes/session_helper.php');
+require_once __DIR__ . '/controller.php';
 
-    $userModel = new Controller();
+$db = new Controller();
+$msg = '';
+$error = '';
 
-    class Users {
-        private $userModel;
+// ✅ Load roles from DB (role table)
+$roles = [];
+try {
+    $stmt = $db->pdo()->prepare("SELECT idrole, name FROM role ORDER BY idrole ASC");
+    $stmt->execute();
+    $roles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $error = "Could not load roles. Please check your role table.";
+}
 
-        public function __construct() {
-            $this->userModel = new Controller();
+if (isset($_POST['submit'])) {
+
+    // Sanitize
+    $name        = trim($_POST['name'] ?? '');
+    $email       = trim($_POST['email'] ?? '');
+    $password    = trim($_POST['password'] ?? '');
+    $gender      = trim($_POST['gender'] ?? '');
+    $mobileno    = trim($_POST['mobileno'] ?? '');
+    $designation = trim($_POST['designation'] ?? '');
+    $roleId      = (int)($_POST['role'] ?? 0); // ✅ role id now, not role name
+
+    // Validate required fields
+    if ($name === '' || $email === '' || $password === '' || $gender === '' || $mobileno === '' || $designation === '' || $roleId === 0) {
+        $error = "Please fill all required fields.";
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = "Invalid email address.";
+    } else {
+        // ✅ check duplicates in ADMIN table
+        if ($db->findAdminByEmailOrUsername($email, $name)) {
+            $error = "This Email or Username already exists in admin. Please login.";
         }
+    }
 
-        public function register() {
-            // Sanitize input
-            $_POST = filter_input_array(INPUT_POST, FILTER_SANITIZE_FULL_SPECIAL_CHARS);
-
-            $username    = trim($_POST['username'] ?? '');
-            $email       = trim($_POST['email'] ?? '');
-            $password    = trim($_POST['password'] ?? '');
-            $gender      = trim($_POST['gender'] ?? '');
-            $mobile      = trim($_POST['mobile'] ?? '');
-            $designation = trim($_POST['designation'] ?? '');
-            $roleName    = trim($_POST['role'] ?? '');
-
-            // Basic validation
-            if ($username === '' || $email === '' || $password === '' || $gender === '' || $mobile === '' || $designation === '' || $roleName === '') {
-                echo "<script>alert('Please fill all required fields.');</script>";
-                return;
+    // ✅ Validate roleId exists in role table
+    if ($error === '') {
+        $validRole = false;
+        foreach ($roles as $r) {
+            if ((int)$r['idrole'] === $roleId) {
+                $validRole = true;
+                break;
             }
+        }
+        if (!$validRole) {
+            $error = "Invalid role selected.";
+        }
+    }
 
-            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                echo "<script>alert('Invalid email address.');</script>";
-                return;
-            }
+    // Upload image
+    $image = 'default.jpg';
 
-            // ✅ ADD: prevent duplicate email/username (uses method added to controller.php)
-            if ($this->userModel->findAdminByEmailOrUsername($email, $username)) {
-                echo "<script>alert('Email or Username already exists.');</script>";
-                return;
-            }
+    if ($error === '') {
+        if (!empty($_FILES['image']['name']) && isset($_FILES['image']['tmp_name'])) {
 
-            // Role mapping (matches your radio values)
-            $roleMap = [
-                'Admin'   => 1,
-                'Manager' => 2,
-                'Staff'   => 4,
-            ];
-            $role = $roleMap[$roleName] ?? 4;
+            $allowedExt = ['jpg', 'jpeg', 'png'];
+            $original = $_FILES['image']['name'];
+            $tmp = $_FILES['image']['tmp_name'];
+            $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
 
-            // Image upload (safe default)
-            $image = 'default.jpg';
-
-            if (!empty($_FILES['image']['name']) && isset($_FILES['image']['tmp_name'])) {
-                $allowedExt = ['jpg', 'jpeg', 'png'];
-                $original = $_FILES['image']['name'];
-                $tmp = $_FILES['image']['tmp_name'];
-
-                $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
-                if (!in_array($ext, $allowedExt, true)) {
-                    echo "<script>alert('Image must be JPG, JPEG, or PNG');</script>";
-                    return;
-                }
-
-                // Safer filename
+            if (!in_array($ext, $allowedExt, true)) {
+                $error = "Image must be JPG, JPEG, or PNG.";
+            } else {
                 $base = preg_replace('/[^a-zA-Z0-9-_]/', '-', pathinfo($original, PATHINFO_FILENAME));
                 $finalName = strtolower($base . '-' . time() . '.' . $ext);
 
-                // IMPORTANT: make sure this folder exists and matches your real folder name: images/ vs Images/
+                // ✅ admin images folder: /admin/images/
                 $folder = __DIR__ . '/images/';
                 if (!is_dir($folder)) {
                     mkdir($folder, 0755, true);
@@ -77,189 +82,172 @@
                 if (move_uploaded_file($tmp, $folder . $finalName)) {
                     $image = $finalName;
                 } else {
-                    echo "<script>alert('Image upload failed.');</script>";
-                    return;
+                    $error = "Image upload failed.";
                 }
             }
-
-            $data = [
-                'username'    => $username,
-                'email'       => $email,
-                'password'    => password_hash($password, PASSWORD_DEFAULT), // secure hashing
-                'gender'      => $gender,
-                'mobile'      => $mobile,
-                'designation' => $designation,
-                'role'        => $role,
-                'image'       => $image,
-                'status'      => 1
-            ];
-
-            if ($this->userModel->register($data)) {
-                $_SESSION['username'] = $username;
-                $_SESSION['image'] = $image;
-
-                echo "<script>alert('Registration Successful!');</script>";
-                echo "<script>window.location.href='index.php';</script>";
-                exit;
-            }
-
-            echo "<script>alert('Registration failed. Please try again.');</script>";
         }
     }
 
-    $init = new Users();
+    if ($error === '') {
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['type'] ?? '') === 'register') {
-        $init->register();
+        // ✅ Insert into ADMIN table with roleId
+        $ok = $db->registerAdmin([
+            'username'    => $name,
+            'email'       => $email,
+            'password'    => password_hash($password, PASSWORD_DEFAULT),
+            'gender'      => $gender,
+            'mobile'      => $mobileno,
+            'designation' => $designation,
+            'role'        => $roleId,   // ✅ teacher etc works automatically
+            'image'       => $image,
+            'status'      => 1
+        ]);
+
+        if ($ok) {
+            // Notification
+            $db->addNotification($email, 'Admin', 'create Account');
+
+            echo "<script>alert('Registration Successful!');</script>";
+            echo "<script>window.location.href='index.php';</script>";
+            exit;
+        } else {
+            $error = "Something went wrong. Please try again.";
+        }
     }
+}
 ?>
 
 <!doctype html>
 <html lang="en" class="no-js">
-
 <head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1">
-    <meta name="description" content="">
-    <meta name="author" content="">
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1">
 
-    <link rel="stylesheet" href="css/font-awesome.min.css">
-    <link rel="stylesheet" href="css/bootstrap.min.css">
-    <link rel="stylesheet" href="css/dataTables.bootstrap.min.css">
-    <link rel="stylesheet" href="css/bootstrap-social.css">
-    <link rel="stylesheet" href="css/bootstrap-select.css">
-    <link rel="stylesheet" href="css/fileinput.min.css">
-    <link rel="stylesheet" href="css/awesome-bootstrap-checkbox.css">
-    <link rel="stylesheet" href="css/style.css">
+  <title>Admin Register</title>
 
-    <script type="text/javascript">
-        // ✅ MINIMAL FIX: allow submit if no image selected (since default.jpg is allowed)
-        function validate(){
-            var image_file = document.regform.image.value;
-            if (!image_file) return true;
+  <link rel="stylesheet" href="css/font-awesome.min.css">
+  <link rel="stylesheet" href="css/bootstrap.min.css">
+  <link rel="stylesheet" href="css/dataTables.bootstrap.min.css">
+  <link rel="stylesheet" href="css/bootstrap-social.css">
+  <link rel="stylesheet" href="css/bootstrap-select.css">
+  <link rel="stylesheet" href="css/fileinput.min.css">
+  <link rel="stylesheet" href="css/awesome-bootstrap-checkbox.css">
+  <link rel="stylesheet" href="css/style.css">
 
-            var extensions = new Array("jpg","jpeg","png");
-            var pos = image_file.lastIndexOf('.') + 1;
-            var ext = image_file.substring(pos).toLowerCase();
+  <script>
+    function validate(){
+      var image = document.regform.image.value;
+      if(!image) return true;
 
-            for (var i = 0; i < extensions.length; i++){
-                if(extensions[i] == ext){
-                    return true;
-                }
-            }
-            alert("Image Extension Not Valid (Use Jpg, jpeg, png)");
-            return false;
-        }
-    </script>
+      var allowed = ["jpg","jpeg","png"];
+      var ext = image.split('.').pop().toLowerCase();
+      if(allowed.indexOf(ext) !== -1) return true;
+
+      alert("Image Extension Not Valid (Use jpg, jpeg, png)");
+      return false;
+    }
+  </script>
 </head>
 
 <body>
-    <div class="login-page bk-img">
-        <div class="form-content">
-            <div class="container">
-                <div class="row">
-                    <div class="col-md-12">
-                        <h1 class="text-center text-bold mt-2x">Register</h1>
-                        <div class="hr-dashed"></div>
-                        <div class="well row pt-2x pb-3x bk-light text-center">
+<div class="login-page bk-img" style="background-image: url(img/background.jpg);">
+  <div class="form-content">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-12">
+          <h1 class="text-center text-bold mt-2x">Admin Register</h1>
+          <div class="hr-dashed"></div>
 
-                        <?php
-                        echo '
-                         <form method="post" class="form-horizontal" enctype="multipart/form-data" id="createAccountFor" name="regform" onSubmit="return validate();">
-                            <div class="form-group">
-                            <label class="col-sm-1 control-label">Name<span style="color:red">*</span></label>
-                            <div class="col-sm-5">
-                            <input type="hidden" name="type" value="register">
-                            <input type="text" name="username" class="form-control" required>
-                            </div>
+          <div class="well row pt-2x pb-3x bk-light text-center">
 
-                            <label class="col-sm-1 control-label">Email<span style="color:red">*</span></label>
-                            <div class="col-sm-5">
-                            <input type="text" name="email" class="form-control" required>
-                            </div>
-                            </div>
+            <?php if($error): ?>
+              <div class="alert alert-danger"><?php echo htmlentities($error); ?></div>
+            <?php elseif($msg): ?>
+              <div class="alert alert-success"><?php echo htmlentities($msg); ?></div>
+            <?php endif; ?>
 
-                            <div class="form-group">
-                            <label class="col-sm-1 control-label">Password<span style="color:red">*</span></label>
-                            <div class="col-sm-5">
-                            <input type="password" name="password" class="form-control" id="password" required >
-                            </div>
+            <form method="post" class="form-horizontal" enctype="multipart/form-data" name="regform" onsubmit="return validate();">
 
-                            <label class="col-sm-1 control-label">Designation<span style="color:red">*</span></label>
-                            <div class="col-sm-5">
-                            <input type="text" name="designation" class="form-control" required>
-                            </div>
-                            </div>
-
-                             <div class="form-group">
-                                <label class="col-sm-1 control-label">Gender<span style="color:red">*</span></label>
-                                        <div class="col-sm-5">
-                                            <select name="gender" class="form-control" required>
-                                                <option value="">Select</option>
-                                                <option value="Male">Male</option>
-                                                <option value="Female">Female</option>
-                                            </select>
-                                        </div>
-
-                                    <label class="col-sm-1 control-label">Phone<span style="color:red">*</span></label>
-                                    <div class="col-sm-5">
-                                        <input type="number" name="mobile" class="form-control" required>
-                                    </div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label class="col-sm-1 control-label">Avtar<span style="color:red">*</span></label>
-                                    <div class="col-sm-5">
-                                    <div><input type="file" name="image" class="form-control"></div>
-                                    </div>
-
-                                    <label class="col-sm-1 control-label">Role<span style="color:red">*</span></label>
-                                    <div>
-                                        <div class="col-sm-5">
-                                            <input type="radio" name="role" id="exampleRadios1" value="Admin">
-                                            <label class="form-check-label" for="exampleRadios1">Admin</label>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <div class="col-sm-5">
-                                            <input type="radio" name="role" id="exampleRadios2" value="Manager">
-                                            <label class="form-check-label" for="exampleRadios2">Manager</label>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <div class="col-sm-5">
-                                            <input type="radio" name="role" id="exampleRadios3" value="Staff">
-                                            <label class="form-check-label" for="exampleRadios3">Staff</label>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <br>
-                                <button class="btn btn-primary" name="submit" type="submit">Register</button>
-                                </form>
-                                <br><br>
-                                <p>Already Have Account? <a href="index.php" >Signin</a></p>
-                            </div>
-                        </div>';
-                        ?>
+              <div class="form-group">
+                <label class="col-sm-1 control-label">Name<span style="color:red">*</span></label>
+                <div class="col-sm-5">
+                  <input type="text" name="name" class="form-control" required>
                 </div>
-            </div>
+
+                <label class="col-sm-1 control-label">Email<span style="color:red">*</span></label>
+                <div class="col-sm-5">
+                  <input type="email" name="email" class="form-control" required>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-1 control-label">Password<span style="color:red">*</span></label>
+                <div class="col-sm-5">
+                  <input type="password" name="password" class="form-control" required>
+                </div>
+
+                <label class="col-sm-1 control-label">Designation<span style="color:red">*</span></label>
+                <div class="col-sm-5">
+                  <input type="text" name="designation" class="form-control" required>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-1 control-label">Gender<span style="color:red">*</span></label>
+                <div class="col-sm-5">
+                  <select name="gender" class="form-control" required>
+                    <option value="">Select</option>
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                  </select>
+                </div>
+
+                <label class="col-sm-1 control-label">Phone<span style="color:red">*</span></label>
+                <div class="col-sm-5">
+                  <input type="number" name="mobileno" class="form-control" required>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="col-sm-1 control-label">Avatar</label>
+                <div class="col-sm-5">
+                  <input type="file" name="image" class="form-control">
+                </div>
+
+                <label class="col-sm-1 control-label">Role<span style="color:red">*</span></label>
+                <div class="col-sm-5" style="text-align:left;">
+                  <?php foreach($roles as $r): ?>
+                    <label>
+                      <input type="radio" name="role" value="<?php echo (int)$r['idrole']; ?>" required>
+                      <?php echo htmlentities($r['name']); ?>
+                    </label><br>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+
+              <br>
+              <button class="btn btn-primary" name="submit" type="submit">Register</button>
+            </form>
+
+            <br><br>
+            <p>Already Have an Account? <a href="index.php">Signin</a></p>
+
+          </div>
         </div>
+      </div>
     </div>
+  </div>
+</div>
 
-    <!-- Loading Scripts -->
-    <script src="js/jquery.min.js"></script>
-    <script src="js/bootstrap-select.min.js"></script>
-    <script src="js/bootstrap.min.js"></script>
-    <script src="js/jquery.dataTables.min.js"></script>
-    <script src="js/dataTables.bootstrap.min.js"></script>
-    <script src="js/Chart.min.js"></script>
-    <script src="js/fileinput.js"></script>
-    <script src="js/chartData.js"></script>
-    <script src="js/main.js"></script>
-
+<script src="js/jquery.min.js"></script>
+<script src="js/bootstrap-select.min.js"></script>
+<script src="js/bootstrap.min.js"></script>
+<script src="js/jquery.dataTables.min.js"></script>
+<script src="js/dataTables.bootstrap.min.js"></script>
+<script src="js/Chart.min.js"></script>
+<script src="js/fileinput.js"></script>
+<script src="js/chartData.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>

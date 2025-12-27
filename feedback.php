@@ -1,184 +1,199 @@
 <?php
-    session_start();
-    error_reporting(0);
-    include('includes/config.php');
-    if(strlen($_SESSION['alogin'])==0){
-        header('location:index.php');
-    }else{
-        if(isset($_POST['submit'])){
-            $file = $_FILES['attachment']['name'];
-			$file_loc = $_FILES['attachment']['tmp_name'];
-			$folder="attachment/";
-			$new_file_name = strtolower($file);
-			$final_file=str_replace(' ','-',$new_file_name);
+require_once __DIR__ . '/includes/session_user.php';
+requireUserLogin();
 
-			$title=$_POST['title'];
-			$description=$_POST['description'];
-			$user=$_SESSION['alogin'];
-			$receiver='Admin';
-			$notitype='Send Feedback';
-			$attachment=' ';
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
 
-			if(move_uploaded_file($file_loc,$folder.$final_file)){
-				$attachment=$final_file;
-			}
+require_once __DIR__ . '/admin/controller.php';
 
-            $notireceiver = 'Admin';
-            $sqlnoti="insert into notification (notiuser, notireceiver,notitype) values (:notiuser,:notireceiver,:notitype)";
-            $querynoti=$dbh->prepare($sqlnoti);
-            $querynoti->bindParam(':notiuser', $user, PDO::PARAM_STR);
-            $querynoti->bindParam(':notireceiver', $notireceiver, PDO::PARAM_STR);
-            $querynoti->bindParam(':notitype', $notitype, PDO::PARAM_STR);
-            $querynoti->execute();
+$controller = new Controller();
+$dbh = $controller->pdo();
 
-            
-            $sql="insert into feedback (sender, receiver, title, feedbackdata, attachment) values (:user,:receiver,:title,:description,:attachment)";
-            $query=$dbh->prepare($sql);
-            $query->bindParam(':user', $user, PDO::PARAM_STR);
-            $query->bindParam(':receiver', $receiver, PDO::PARAM_STR);
-            $query->bindParam(':title', $title, PDO::PARAM_STR);
-            $query->bindParam(':description', $description, PDO::PARAM_STR);
-            $query->bindParam(':attachment', $attachment, PDO::PARAM_STR);
-            $query->execute();
-            $msg="Feedback Send";
-            
+$msg = '';
+$error = '';
+
+// ------------------------------------
+// SUBMIT FEEDBACK
+// ------------------------------------
+if (isset($_POST['submit'])) {
+
+    $title       = trim($_POST['title'] ?? '');
+    $description = trim($_POST['description'] ?? '');
+
+    // ✅ logged in user email from user session
+    $user     = $_SESSION['user_login']; // email
+    $receiver = 'Admin';
+    $notitype = 'Send Feedback';
+
+    if ($title === '' || $description === '') {
+        $error = "Please fill all required fields.";
+    }
+
+    // -----------------------------
+    // Attachment (optional)
+    // -----------------------------
+    $attachment = null;
+
+    // ✅ This folder must exist: /Business_only/attachment/
+    $folder = __DIR__ . "/attachment/";
+    if (!is_dir($folder)) {
+        mkdir($folder, 0755, true);
+    }
+
+    if ($error === '' && !empty($_FILES['attachment']['name'])) {
+
+        $file     = $_FILES['attachment']['name'];
+        $file_loc = $_FILES['attachment']['tmp_name'];
+
+        // ✅ safer allowed extensions
+        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        $allowed  = ['jpg','jpeg','png','pdf','doc','docx'];
+
+        if (!in_array($ext, $allowed, true)) {
+            $error = "Invalid attachment type. Allowed: jpg, jpeg, png, pdf, doc, docx.";
+        } else {
+
+            $base = preg_replace('/[^a-zA-Z0-9-_]/', '-', pathinfo($file, PATHINFO_FILENAME));
+            $final_file = strtolower($base . '-' . time() . '.' . $ext);
+
+            if (move_uploaded_file($file_loc, $folder . $final_file)) {
+                $attachment = $final_file;
+            } else {
+                $error = "Attachment upload failed.";
+            }
         }
+    }
+
+    // -----------------------------
+    // INSERT DATA
+    // -----------------------------
+    if ($error === '') {
+
+        try {
+            // ✅ 1) Notification for Admin
+            $sqlNoti = "INSERT INTO notification (notiuser, notireceiver, notitype)
+                        VALUES (:user, :receiver, :type)";
+            $stmtNoti = $dbh->prepare($sqlNoti);
+            $stmtNoti->execute([
+                ':user'     => $user,
+                ':receiver' => $receiver,
+                ':type'     => $notitype
+            ]);
+
+            // ✅ 2) Feedback message to Admin
+            $sql = "INSERT INTO feedback (sender, receiver, title, feedbackdata, attachment)
+                    VALUES (:sender, :receiver, :title, :data, :attachment)";
+            $stmt = $dbh->prepare($sql);
+            $stmt->execute([
+                ':sender'     => $user,
+                ':receiver'   => $receiver,
+                ':title'      => $title,
+                ':data'       => $description,
+                ':attachment' => $attachment
+            ]);
+
+            $msg = "Feedback Sent Successfully";
+
+        } catch (PDOException $e) {
+            $error = "Database error: " . $e->getMessage();
+        }
+    }
+}
 ?>
 
 <!doctype html>
 <html lang="en" class="no-js">
-
 <head>
-	<meta charset="UTF-8">
-	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1">
-	<meta name="description" content="">
-	<meta name="author" content="">
-	<meta name="theme-color" content="#3e454c">
-	
-	<title>Edit Profile</title>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-	<!-- Font awesome -->
-	<link rel="stylesheet" href="css/font-awesome.min.css">
-	<!-- Sandstone Bootstrap CSS -->
-	<link rel="stylesheet" href="css/bootstrap.min.css">
-	<!-- Bootstrap Datatables -->
-	<link rel="stylesheet" href="css/dataTables.bootstrap.min.css">
-	<!-- Bootstrap social button library -->
-	<link rel="stylesheet" href="css/bootstrap-social.css">
-	<!-- Bootstrap select -->
-	<link rel="stylesheet" href="css/bootstrap-select.css">
-	<!-- Bootstrap file input -->
-	<link rel="stylesheet" href="css/fileinput.min.css">
-	<!-- Awesome Bootstrap checkbox -->
-	<link rel="stylesheet" href="css/awesome-bootstrap-checkbox.css">
-	<!-- Admin Stye -->
-	<link rel="stylesheet" href="css/style.css">
+<title>Send Feedback</title>
 
-	<script type= "text/javascript" src="../vendor/countries.js"></script>
-	<style>
-        .errorWrap {
-        padding: 10px;
-        margin: 0 0 20px 0;
-        background: #dd3d36;
-        color:#fff;
-        -webkit-box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);
-        box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);
-        }
-        .succWrap{
-            padding: 10px;
-            margin: 0 0 20px 0;
-            background: #5cb85c;
-            color:#fff;
-            -webkit-box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);
-            box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);
-        }
-    </style>
+<link rel="stylesheet" href="css/font-awesome.min.css">
+<link rel="stylesheet" href="css/bootstrap.min.css">
+<link rel="stylesheet" href="css/style.css">
+
+<style>
+.errorWrap {
+    padding:10px;
+    background:#dd3d36;
+    color:#fff;
+    margin-bottom:15px;
+}
+.succWrap {
+    padding:10px;
+    background:#5cb85c;
+    color:#fff;
+    margin-bottom:15px;
+}
+</style>
 </head>
 
 <body>
-    <?php 
-        $sql = "SELECT * from users;";
-        $query=$dbh->prepare($sql);
-        $query->execute();
-        $result=$query->fetch(PDO::FETCH_OBJ);
-        $cnt=1;	
-    ?>
 
-    <?php include('includes/header.php');?>
-        <div class="ts-main-content">
-        <?php include('includes/leftbar.php');?>
-            <div class="content-wrapper">
-                <div class="container-fluid">
-                    <div class="row">
-                        <div class="col-md-12">
-                            <div class="row">
-            
-                                <div class="col-md-12">
-                                <h2>Give us Feedback</h2>
-                                    <div class="panel panel-default">
-                                        <div class="panel-heading">Edit Info</div>
-                                            <?php if($error){?><div class="errorWrap"><strong>ERROR</strong>:<?php echo htmlentities($error); ?> </div><?php } 
-                                                            else if($msg){?><div class="succWrap"><strong>SUCCESS</strong>:<?php echo htmlentities($msg); ?> </div><?php }?>
+<?php include __DIR__ . '/includes/header.php'; ?>
 
-                                        <div class="panel-body">
-                                            <form method="post" class="form-horizontal" enctype="multipart/form-data">
+<div class="ts-main-content">
+<?php include __DIR__ . '/includes/leftbar.php'; ?>
 
-                                                <div class="form-group">
-                                                    <input type="hidden" name="user" value="<?php echo htmlentities($result->email); ?>">
-                                                    <label class="col-sm-2 control-label">Title<span style="color:red">*</span></label>
-                                                    <div class="col-sm-4">
-                                                    <input type="text" name="title" class="form-control" required>
-                                                    </div>
+<div class="content-wrapper">
+<div class="container-fluid">
 
-                                                    <label class="col-sm-2 control-label">Attachment<span style="color:red"></span></label>
-                                                    <div class="col-sm-4">
-                                                    <input type="file" name="attachment" class="form-control">
-                                                    </div>
-                                                </div>
+<h2 class="page-title">New Compose</h2>
 
-                                                <div class="form-group">
-                                                    <label class="col-sm-2 control-label">Description<span style="color:red">*</span></label>
-                                                    <div class="col-sm-10">
-                                                    <textarea class="form-control" rows="5" name="description"></textarea>
-                                                    </div>
-                                                </div>
+<?php if($error): ?>
+<div class="errorWrap"><strong>ERROR:</strong> <?php echo htmlentities($error); ?></div>
+<?php elseif($msg): ?>
+<div class="succWrap"><strong>SUCCESS:</strong> <?php echo htmlentities($msg); ?></div>
+<?php endif; ?>
 
-                                                <div class="form-group">
-                                                    <div class="col-sm-8 col-sm-offset-2">
-                                                        <button class="btn btn-primary" name="submit" type="submit">Send</button>
-                                                    </div>
-                                                </div>
+<div class="panel panel-default">
+<div class="panel-body">
 
-                                            </form>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+<form method="post" class="form-horizontal" enctype="multipart/form-data">
 
-        <!-- Loading Scripts -->
-        <script src="js/jquery.min.js"></script>
-        <script src="js/bootstrap-select.min.js"></script>
-        <script src="js/bootstrap.min.js"></script>
-        <script src="js/jquery.dataTables.min.js"></script>
-        <script src="js/dataTables.bootstrap.min.js"></script>
-        <script src="js/Chart.min.js"></script>
-        <script src="js/fileinput.js"></script>
-        <script src="js/chartData.js"></script>
-        <script src="js/main.js"></script>
-        <script type="text/javascript">
-                    $(document).ready(function () {          
-                        setTimeout(function() {
-                            $('.succWrap').slideUp("slow");
-                        }, 3000);
-                        });
-        </script>
+<div class="form-group">
+    <label class="col-sm-2 control-label">Title *</label>
+    <div class="col-sm-4">
+        <input type="text" name="title" class="form-control" required>
+    </div>
+
+    <label class="col-sm-2 control-label">Attachment</label>
+    <div class="col-sm-4">
+        <input type="file" name="attachment" class="form-control">
+        <small>Allowed: jpg, jpeg, png, pdf, doc, docx</small>
+    </div>
+</div>
+
+<div class="form-group">
+    <label class="col-sm-2 control-label">Description *</label>
+    <div class="col-sm-10">
+        <textarea class="form-control" rows="5" name="description" required></textarea>
+    </div>
+</div>
+
+<div class="form-group">
+    <div class="col-sm-8 col-sm-offset-2">
+        <button class="btn btn-primary" name="submit" type="submit">Send</button>
+    </div>
+</div>
+
+</form>
+
+</div>
+</div>
+
+</div>
+</div>
+</div>
+
+<script src="js/jquery.min.js"></script>
+<script src="js/bootstrap.min.js"></script>
+<script>
+setTimeout(() => $('.succWrap').slideUp('slow'), 3000);
+</script>
+
 </body>
 </html>
-
-<?php } ?>

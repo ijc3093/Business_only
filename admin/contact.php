@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/includes/session_admin.php';
 error_reporting(0);
 
 include('./controller.php');
@@ -8,7 +8,7 @@ include('./controller.php');
 $controller = new Controller();
 $dbh = $controller->__construct();
 
-if(strlen($_SESSION['alogin'])==0){
+if(strlen($_SESSION['admin_login'])==0){
     header('location:index.php');
 }else{
 

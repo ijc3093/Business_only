@@ -1,131 +1,185 @@
 <?php
-    session_start();
-    error_reporting(0);
-    include('includes/config.php');
-    if(strlen($_SESSION['alogin'])==0){
-        header('location:index.php');
-    }else{
-        if(isset($_POST['submit'])){
-            $name=$_POST['name'];
-            $email=$_POST['email'];
-            $sql="UPDATE admin SET username=(:name), email=(:email)";
-            $query = $dbh->prepare($sql);
-            $query->bindParam(':name', $name, PDO::PARAM_STR);
-            $query->bindParam(':email', $email, PDO::PARAM_STR);
-            $query->execute();
-            $msg="Information Updated Successfully";
-        }
-?>
+require_once __DIR__ . '/includes/session_user.php';
+requireUserLogin();
 
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
+
+require_once __DIR__ . '/admin/controller.php';
+
+$controller = new Controller();
+$dbh = $controller->pdo();
+
+$email = $_SESSION['user_login'];
+
+$msg = '';
+$error = '';
+
+// DELETE ONE
+if (isset($_GET['del'])) {
+    $id = (int)$_GET['del'];
+    $stmt = $dbh->prepare("DELETE FROM notification WHERE id = :id AND notireceiver = :email");
+    $stmt->execute([':id' => $id, ':email' => $email]);
+    $msg = "Notification deleted.";
+}
+
+// DELETE ALL
+if (isset($_POST['delete_all'])) {
+    $stmt = $dbh->prepare("DELETE FROM notification WHERE notireceiver = :email");
+    $stmt->execute([':email' => $email]);
+    $msg = "All notifications deleted.";
+}
+
+// LOAD NOTIFICATIONS
+$stmt = $dbh->prepare("
+    SELECT id, notiuser, notitype, created_at, is_read
+    FROM notification
+    WHERE notireceiver = :email
+    ORDER BY created_at DESC
+");
+$stmt->execute([':email' => $email]);
+$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+function fmt_dt($dt) {
+    return $dt ? date('M d, Y h:i A', strtotime($dt)) : 'N/A';
+}
+?>
 <!doctype html>
 <html lang="en" class="no-js">
-
 <head>
-	<meta charset="UTF-8">
-	<meta http-equiv="X-UA-Compatible" content="IE=edge">
-	<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1">
-	<meta name="description" content="">
-	<meta name="author" content="">
-	<meta name="theme-color" content="#3e454c">
-	
-	<title>Notifications</title>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Notifications</title>
 
-	<!-- Font awesome -->
-	<link rel="stylesheet" href="css/font-awesome.min.css">
-	<!-- Sandstone Bootstrap CSS -->
-	<link rel="stylesheet" href="css/bootstrap.min.css">
-	<!-- Bootstrap Datatables -->
-	<link rel="stylesheet" href="css/dataTables.bootstrap.min.css">
-	<!-- Bootstrap social button library -->
-	<link rel="stylesheet" href="css/bootstrap-social.css">
-	<!-- Bootstrap select -->
-	<link rel="stylesheet" href="css/bootstrap-select.css">
-	<!-- Bootstrap file input -->
-	<link rel="stylesheet" href="css/fileinput.min.css">
-	<!-- Awesome Bootstrap checkbox -->
-	<link rel="stylesheet" href="css/awesome-bootstrap-checkbox.css">
-	<!-- Admin Stye -->
-	<link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/font-awesome.min.css">
+  <link rel="stylesheet" href="css/bootstrap.min.css">
+  <link rel="stylesheet" href="css/dataTables.bootstrap.min.css">
+  <link rel="stylesheet" href="css/style.css">
 
-	<script type= "text/javascript" src="../vendor/countries.js"></script>
-	<style>
-        .errorWrap {
-        padding: 10px;
-        margin: 0 0 20px 0;
-        background: #dd3d36;
-        color:#fff;
-        -webkit-box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);
-        box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);
-        }
-        .succWrap{
-            padding: 10px;
-            margin: 0 0 20px 0;
-            background: #5cb85c;
-            color:#fff;
-            -webkit-box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);
-            box-shadow: 0 1px 1px 0 rgba(0,0,0,.1);
-        }
-	</style>
+  <style>
+    .succWrap{ padding:10px; background:#5cb85c; color:#fff; margin:0 0 15px; }
+    .errorWrap{ padding:10px; background:#dd3d36; color:#fff; margin:0 0 15px; }
+    .unread { font-weight:700; }
+    .action-icons a { margin-right:10px; font-size:16px; }
+    .top-actions { display:flex; gap:10px; justify-content:flex-end; margin-bottom:10px; flex-wrap:wrap; }
+  </style>
 </head>
-
 <body>
-	<?php include('includes/header.php');?>
-	<div class="ts-main-content">
-	<?php include('includes/leftbar.php');?>
-                                        <div class="content-wrapper">
-                                            <div class="container-fluid">
-                                                <div class="row">
-                                                    <div class="col-md-12">
-                                                        <h3 class="page-title">Notifications</h3>
-                                                        <div class="row">
-                                                            <div class="col-md-12">
-                                                                <div class="panel panel-default">
-                                                                    <div class="panel-heading">Notification</div>
-                                                                    <div class="panel-body">                                     
-                                                                            <?php
-                                                                            //$receiver = 'Admin';
-                                                                            $receiver = $_SESSION['alogin'];
-                                                                            $sql = "SELECT * FROM notification where notireceiver = (:receiver) order by time DESC";
-                                                                            $query = $dbh->prepare($sql);
-                                                                            $query->bindParam(':receiver', $receiver, PDO::PARAM_STR);
-                                                                            $query->execute();
-                                                                            $results=$query->fetchAll(PDO::FETCH_OBJ);
-                                                                            $cnt=1;
-                                                                            // $msg="Information Updated Successfully";
-                                                                            if($query->rowCount() > 0){
-                                                                                foreach($results as $result){?>
 
-                                                                                    <h5 style="background:#ededed;padding:20px;"><i class="fa fa-bell text-primary"></i>&nbsp;&nbsp;<b class="text-primary">
-                                                                                        <?php echo htmlentities($result->time);?></b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                                                                                        <?php echo htmlentities($result->notiuser);?> -----> 
-                                                                                        <?php echo htmlentities($result->notitype);?></h5>
-                                                                                                <?php $cnt=$cnt+1; }} ?>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-    <!-- Scripts -->
-    <script src="js/jquery.min.js"></script>
-	<script src="js/bootstrap-select.min.js"></script>
-	<script src="js/bootstrap.min.js"></script>
-	<script src="js/jquery.dataTables.min.js"></script>
-	<script src="js/dataTables.bootstrap.min.js"></script>
-	<script src="js/Chart.min.js"></script>
-	<script src="js/fileinput.js"></script>
-	<script src="js/chartData.js"></script>
-	<script src="js/main.js"></script>
-	<script type="text/javascript">
-				 $(document).ready(function () {          
-					setTimeout(function() {
-						$('.succWrap').slideUp("slow");
-					}, 3000);
-					});
-	</script>
+<?php include __DIR__ . '/includes/header.php'; ?>
+<div class="ts-main-content">
+<?php include __DIR__ . '/includes/leftbar.php'; ?>
+
+<div class="content-wrapper">
+<div class="container-fluid">
+
+  <h2 class="page-title">Notification</h2>
+
+  <?php if ($error): ?><div class="errorWrap"><?php echo htmlentities($error); ?></div><?php endif; ?>
+  <?php if ($msg): ?><div class="succWrap"><?php echo htmlentities($msg); ?></div><?php endif; ?>
+
+  <div class="panel panel-default">
+    <div class="panel-heading">Notification List</div>
+    <div class="panel-body">
+
+      <div class="top-actions">
+        <button class="btn btn-info btn-sm" id="btnMarkAll">
+          <i class="fa fa-check"></i> Mark All Read
+        </button>
+
+        <form method="post" style="margin:0;">
+          <button class="btn btn-danger btn-sm" type="submit" name="delete_all"
+            onclick="return confirm('Delete ALL notifications?');"
+            <?php echo empty($rows) ? 'disabled' : ''; ?>>
+            <i class="fa fa-trash"></i> Delete All
+          </button>
+        </form>
+      </div>
+
+      <table id="zctb" class="table table-striped table-bordered">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>From</th>
+            <th>Notification</th>
+            <th>Date &amp; Time</th>
+            <th>Read</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+        <?php $i=1; foreach ($rows as $r): ?>
+          <tr class="<?php echo ((int)$r['is_read'] === 0) ? 'unread' : ''; ?>">
+            <td><?php echo $i++; ?></td>
+            <td><?php echo htmlentities($r['notiuser']); ?></td>
+            <td><?php echo htmlentities($r['notitype']); ?></td>
+            <td><?php echo htmlentities(fmt_dt($r['created_at'])); ?></td>
+            <td>
+              <?php if ((int)$r['is_read'] === 1): ?>
+                <span class="label label-success">Read</span>
+              <?php else: ?>
+                <span class="label label-warning">Unread</span>
+              <?php endif; ?>
+            </td>
+            <td class="action-icons">
+              <a href="#" class="markReadBtn" data-id="<?php echo (int)$r['id']; ?>" title="Mark Read">
+                <i class="fa fa-check text-success"></i>
+              </a>
+
+              <a href="notification.php?del=<?php echo (int)$r['id']; ?>"
+                 onclick="return confirm('Delete this notification?');" title="Delete">
+                <i class="fa fa-trash text-danger"></i>
+              </a>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+
+    </div>
+  </div>
+
+</div>
+</div>
+</div>
+
+<script src="js/jquery.min.js"></script>
+<script src="js/bootstrap.min.js"></script>
+<script src="js/jquery.dataTables.min.js"></script>
+<script src="js/dataTables.bootstrap.min.js"></script>
+
+<script>
+$(function(){
+  $('#zctb').DataTable({
+    pageLength: 10,
+    lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]]
+  });
+
+  // Mark one read
+  $(document).on('click', '.markReadBtn', async function(e){
+    e.preventDefault();
+    const id = $(this).data('id');
+
+    const fd = new FormData();
+    fd.append('id', id);
+
+    const res = await fetch('api/mark_read.php', { method:'POST', body: fd });
+    const data = await res.json();
+
+    if (data.ok) location.reload();
+    else alert(data.error || 'Failed');
+  });
+
+  // Mark all read
+  $('#btnMarkAll').on('click', async function(){
+    const res = await fetch('api/mark_all_read.php', { method:'POST' });
+    const data = await res.json();
+    if (data.ok) location.reload();
+    else alert(data.error || 'Failed');
+  });
+});
+</script>
+
 </body>
 </html>
-<?php } ?>

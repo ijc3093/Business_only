@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/includes/session_admin.php';
 error_reporting(0);
 
 include('./controller.php');
@@ -17,7 +17,7 @@ if(strlen($_SESSION['alogin'])==0){
 
         $password     = $_POST['password'] ?? '';
         $newpassword  = $_POST['newpassword'] ?? '';
-        $username     = $_SESSION['alogin'];
+        $username     = $_SESSION['admin_login'];
 
         // ✅ fetch current password hash
         $sql = "SELECT password FROM admin WHERE username = :username LIMIT 1";

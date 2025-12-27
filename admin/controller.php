@@ -1,213 +1,312 @@
-<?php 
-    
-    class Config2 {
-        private $host = 'localhost';
-        private $user = 'root';
-        private $pass = '';
-        private $dbname = 'gospel';
-
-        //Will be the PDO object
-        private $dbh;
-        private $stmt;
-        private $error;
-
-        public function __construct(){
-            //Set DSN
-            $dsn = 'mysql:host='.$this->host.';dbname='.$this->dbname;
-            $options = array(
-                PDO::ATTR_PERSISTENT => true,
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
-            );
-
-            //Create PDO instance
-            try{
-                $this->dbh = new PDO($dsn, $this->user, $this->pass, $options);
-            }catch(PDOException $e){
-                $this->error = $e->getMessage();
-                echo $this->error;
-            }
-        }
-
-        //Prepare statement with query
-        public function query($sql){
-            $this->stmt = $this->dbh->prepare($sql);
-        }
-
-        //Bind values, to prepared statement using named parameters
-        public function bind($param, $value, $type = null){
-            if(is_null($type)){
-                switch(true){
-                    case is_int($value):
-                        $type = PDO::PARAM_INT;
-                        break;
-                    case is_bool($value):
-                        $type = PDO::PARAM_BOOL;
-                        break;
-                    case is_null($value):
-                        $type = PDO::PARAM_NULL;
-                        break;
-                    default:
-                        $type = PDO::PARAM_STR;
-                }
-            }
-            $this->stmt->bindValue($param, $value, $type);
-        }
-
-        //Execute the prepared statement
-        public function execute(){
-            return $this->stmt->execute();
-        }
-
-        //Return multiple records
-        public function resultSet(){
-            $this->execute();
-            return $this->stmt->fetchAll(PDO::FETCH_OBJ);
-        }
-
-        //Return a single record
-        public function single(){
-            $this->execute();
-            return $this->stmt->fetch(PDO::FETCH_OBJ);
-        }
-
-        //Get row count
-        public function rowCount(){
-            return $this->stmt->rowCount();
-        }
-    }
-?>
-
 <?php
-    
-    class Controller{
+/**
+ * Controller.php
+ * - Single PDO connection
+ * - Admin + Users register
+ * - Login supports old hashes (md5/sha256/sha384) + new (password_hash)
+ */
 
-        private $dbh;
-        private $server = "localhost";
-        private $username = "root";
-        private $password = "";
-        private $dbname = "gospel";
+class Controller
+{
+    private PDO $dbh;
 
-        function __construct(){
-            
-            $this->dbh = null;
-            
-            try{
-                $this->dbh = new PDO("mysql:host=" . $this->server . ";dbname=" . $this->dbname, $this->username, $this->password);
-                $this->dbh->exec("set names utf8");
-                $this->dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                $this->dbh->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
-            }catch(PDOException $exception){
-                echo "Database could not be connected: " . $exception->getMessage();
-            }
-            return $this->dbh;
+    private string $server = "localhost";
+    private string $username = "root";
+    private string $password = "root";
+    private string $dbname = "gospel";
 
-        }
-
-        //////////////////////////////////////////////Register////////////////////////////////////////
-        //Register insert (Create A New Account)
-        public function register($data){
-            $db = new Config2;
-            $db->query('INSERT INTO admin (username, email, password, gender, mobile, designation, role, image, status)
-            VALUES (:username,:email,:password,:gender,:mobile,:designation,:role,:image,:status)');
-
-            //Bind values
-            $db->bind(':username', $data['username']);
-            $db->bind(':email', $data['email']);
-            $db->bind(':password', $data['password']);
-            $db->bind(':gender', $data['gender']);
-            $db->bind(':mobile', $data['mobile']);
-            $db->bind(':designation', $data['designation']);
-            $db->bind(':role', $data['role']);
-            $db->bind(':image', $data['image']);
-            $db->bind(':status', $data['status']);
-
-            //Execute
-            if($db->execute()){
-                return true;
-            }else{
-                return false;
-            }
-        }
-
-        //////////////////////////////////////////////Login///////////////////////////////////////////////////////////////////////
-        // ✅ FIX: make login compatible with password_hash() used during register
-        function login($username, $password){
-            try{
-                $stmt = $this->dbh->prepare("SELECT idadmin, role, password FROM admin WHERE username = ? LIMIT 1");
-                $stmt->bindParam(1, $username, PDO::PARAM_STR);
-                $stmt->execute();
-                $reply = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if($reply == null){
-                    $this->dbh = null;
-                    return -1;
-                }
-
-                if(!password_verify($password, $reply['password'])){
-                    return -1;
-                }
-
-                // User's role (userRole)
-                $role = $reply['role'];
-                // user id add here
-                $id = $reply['idadmin'];
-
-                $_SESSION['userRole'] = $role;
-                $_SESSION['id'] = $id;
-
-                return 1;
-
-            }catch(PDOException $e){
-                echo $e->getMessage();
-                return -1;
-            }
-        }
-
-        // ✅ ADD: fixes "Undefined method findUserByEmail"
-        public function findUserByEmail($email){
-            $db = new Config2;
-            $db->query('SELECT * FROM admin WHERE email = :email');
-            $db->bind(':email', $email);
-
-            $row = $db->single();
-
-            if($db->rowCount() > 0){
-                return $row;
-            }else{
-                return false;
-            }
-        }
-
-        // ✅ ADD: match your register.php table (admin) for duplicate checks
-        public function findAdminByEmailOrUsername($email, $username){
-            $db = new Config2;
-            $db->query('SELECT * FROM admin WHERE username = :username OR email = :email');
-            $db->bind(':username', $username);
-            $db->bind(':email', $email);
-
-            $row = $db->single();
-
-            if($db->rowCount() > 0){
-                return $row;
-            }else{
-                return false;
-            }
-        }
-
-        // Your original method (left as-is)
-        public function findUserByEmailOrUsername($email, $username){
-            $db = new Config2;
-            $db->query('SELECT * FROM user WHERE username = :username OR email = :email');
-            $db->bind(':username', $username);
-            $db->bind(':email', $email);
-
-            $row = $db->single();
-
-            if($db->rowCount() > 0){
-                return $row;
-            }else{
-                return false;
-            }
+    public function __construct()
+    {
+        try {
+            $this->dbh = new PDO(
+                "mysql:host={$this->server};dbname={$this->dbname};charset=utf8mb4",
+                $this->username,
+                $this->password,
+                [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_EMULATE_PREPARES => false,
+                ]
+            );
+        } catch (PDOException $e) {
+            // In production, log this instead of echo
+            die("Database could not be connected: " . $e->getMessage());
         }
     }
-?>
+
+    // ---------------------------
+    // Helpers
+    // ---------------------------
+    public function pdo(): PDO
+    {
+        return $this->dbh;
+    }
+
+    private function hashMatches(string $plain, string $dbHash): bool
+    {
+        // 1) New secure hash (bcrypt/argon) stored by password_hash()
+        if (password_get_info($dbHash)['algo'] !== 0) {
+            return password_verify($plain, $dbHash);
+        }
+
+        // 2) Legacy hashes
+        if (hash('sha256', $plain) === $dbHash) return true;
+        if (hash('sha384', $plain) === $dbHash) return true; // your SQL seed looks like this length
+        if (md5($plain) === $dbHash) return true;
+
+        return false;
+    }
+
+    private function upgradePasswordIfNeeded(int $idadmin, string $plain, string $dbHash): void
+    {
+        // If already password_hash(), do nothing
+        if (password_get_info($dbHash)['algo'] !== 0) {
+            return;
+        }
+
+        // Upgrade old hashes to password_hash for better security
+        $newHash = password_hash($plain, PASSWORD_DEFAULT);
+        $sql = "UPDATE admin SET password = :password WHERE idadmin = :id";
+        $stmt = $this->dbh->prepare($sql);
+        $stmt->execute([
+            ':password' => $newHash,
+            ':id' => $idadmin
+        ]);
+    }
+
+    // ---------------------------
+    // Admin: Find existing
+    // ---------------------------
+    public function findAdminByEmailOrUsername(string $email, string $username)
+    {
+        $sql = "SELECT * FROM admin WHERE email = :email OR username = :username LIMIT 1";
+        $stmt = $this->dbh->prepare($sql);
+        $stmt->execute([
+            ':email' => $email,
+            ':username' => $username
+        ]);
+        $row = $stmt->fetch();
+        return $row ?: false;
+    }
+
+    // ---------------------------
+    // Admin: Register (admin/register.php uses this)
+    // ---------------------------
+    public function registerAdmin(array $data): bool
+    {
+        $sql = "INSERT INTO admin (username, email, password, gender, mobile, designation, role, image, status)
+                VALUES (:username, :email, :password, :gender, :mobile, :designation, :role, :image, :status)";
+        $stmt = $this->dbh->prepare($sql);
+
+        return $stmt->execute([
+            ':username' => $data['username'],
+            ':email' => $data['email'],
+            ':password' => $data['password'], // store password_hash() result
+            ':gender' => $data['gender'],
+            ':mobile' => $data['mobile'],
+            ':designation' => $data['designation'],
+            ':role' => $data['role'],
+            ':image' => $data['image'],
+            ':status' => $data['status'],
+        ]);
+    }
+
+    // ---------------------------
+    // Users: Register (root /register.php uses this)
+    // ---------------------------
+    public function registerUser(array $data): bool
+    {
+        $sql = "INSERT INTO users (name, email, password, gender, mobile, designation, image, status)
+                VALUES (:name, :email, :password, :gender, :mobile, :designation, :image, :status)";
+        $stmt = $this->dbh->prepare($sql);
+
+        return $stmt->execute([
+            ':name' => $data['name'],
+            ':email' => $data['email'],
+            ':password' => $data['password'], // store password_hash() result
+            ':gender' => $data['gender'],
+            ':mobile' => $data['mobile'],
+            ':designation' => $data['designation'],
+            ':image' => $data['image'],
+            ':status' => $data['status'],
+        ]);
+    }
+
+    public function findUserByEmail(string $email)
+    {
+        $sql = "SELECT * FROM users WHERE email = :email LIMIT 1";
+        $stmt = $this->dbh->prepare($sql);
+        $stmt->execute([':email' => $email]);
+        $row = $stmt->fetch();
+        return $row ?: false;
+    }
+
+
+        private function userHashMatches(string $plain, string $dbHash): bool
+    {
+        // New secure hash (bcrypt/argon)
+        if (password_get_info($dbHash)['algo'] !== 0) {
+            return password_verify($plain, $dbHash);
+        }
+
+        // Legacy hashes
+        if (hash('sha256', $plain) === $dbHash) return true;
+        if (hash('sha384', $plain) === $dbHash) return true;
+        if (md5($plain) === $dbHash) return true;
+
+        return false;
+    }
+
+    private function upgradeUserPasswordIfNeeded(int $userId, string $plain, string $dbHash): void
+    {
+        // Already password_hash => nothing to do
+        if (password_get_info($dbHash)['algo'] !== 0) {
+            return;
+        }
+
+        // Upgrade to password_hash()
+        $newHash = password_hash($plain, PASSWORD_DEFAULT);
+
+        $sql = "UPDATE users SET password = :p WHERE id = :id LIMIT 1";
+        $stmt = $this->dbh->prepare($sql);
+        $stmt->execute([
+            ':p'  => $newHash,
+            ':id' => $userId
+        ]);
+    }
+
+    // ---------------------------
+    // Admin Login (admin/index.php calls this)
+    // ---------------------------
+    // ---------------------------
+    // Admin Login (NO session write)
+    // returns admin row or null
+    // ---------------------------
+    public function adminLogin(string $usernameOrEmail, string $password): ?array
+    {
+        $sql = "SELECT idadmin, username, email, password, role, status, image
+                FROM admin
+                WHERE username = :u OR email = :e
+                LIMIT 1";
+
+        $stmt = $this->dbh->prepare($sql);
+        $stmt->execute([
+            ':u' => $usernameOrEmail,
+            ':e' => $usernameOrEmail,
+        ]);
+
+        $row = $stmt->fetch();
+        if (!$row) return null;
+
+        if ((int)$row['status'] !== 1) return null;
+
+        $dbHash = (string)$row['password'];
+        if (!$this->hashMatches($password, $dbHash)) return null;
+
+        // Upgrade old hashes to password_hash()
+        $this->upgradePasswordIfNeeded((int)$row['idadmin'], $password, $dbHash);
+
+        // Return row only (no session!)
+        return [
+            'idadmin' => (int)$row['idadmin'],
+            'username' => (string)$row['username'],
+            'email' => (string)$row['email'],
+            'role' => (int)$row['role'],
+            'image' => (string)($row['image'] ?? 'default.jpg'),
+        ];
+    }
+
+    public function userLogin(string $email, string $password): array|false
+    {
+        $sql = "SELECT id, name, email, password, image, status
+                FROM users
+                WHERE email = :email
+                LIMIT 1";
+
+        $stmt = $this->dbh->prepare($sql);
+        $stmt->execute([':email' => $email]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) return false;
+        if ((int)$user['status'] !== 1) return false;
+
+        $dbHash = (string)$user['password'];
+
+        // ✅ Verify password_hash() or legacy md5
+        $ok = false;
+
+        if (password_get_info($dbHash)['algo'] !== 0) {
+            $ok = password_verify($password, $dbHash);
+        } else {
+            // legacy md5
+            $ok = (md5($password) === $dbHash);
+
+            // ✅ Auto-upgrade old md5 to password_hash after successful login
+            if ($ok) {
+                $newHash = password_hash($password, PASSWORD_DEFAULT);
+                $up = $this->dbh->prepare("UPDATE users SET password = :p WHERE id = :id");
+                $up->execute([
+                    ':p'  => $newHash,
+                    ':id' => (int)$user['id']
+                ]);
+                $user['password'] = $newHash;
+            }
+        }
+
+        return $ok ? $user : false;
+    }
+
+
+    // ---------------------------
+    // Notification helper
+    // ---------------------------
+    public function addNotification(string $notiuser, string $notireceiver, string $notitype): bool
+    {
+        $sql = "INSERT INTO notification (notiuser, notireceiver, notitype, is_read)
+                VALUES (:u, :r, :t, 0)";
+        $stmt = $this->dbh->prepare($sql);
+
+        $ok = $stmt->execute([
+            ':u' => $notiuser,
+            ':r' => $notireceiver,
+            ':t' => $notitype
+        ]);
+
+        // Email alert (only if receiver looks like an email)
+        if ($ok && filter_var($notireceiver, FILTER_VALIDATE_EMAIL)) {
+            $mailer = __DIR__ . '/../includes/mailer.php';
+            if (file_exists($mailer)) {
+                require_once $mailer;
+
+                $subject = "New Notification";
+                $message = "From: <b>" . htmlspecialchars($notiuser) . "</b><br>"
+                        . "Type: <b>" . htmlspecialchars($notitype) . "</b><br>"
+                        . "Login to view it.";
+
+                sendNotificationEmail($notireceiver, $subject, $message);
+            }
+        }
+
+        return $ok;
+    }
+
+
+
+
+    // Return role record: ['idrole'=>..., 'name'=>...]
+    public function getRoleById(int $idrole): ?array
+    {
+        $stmt = $this->dbh->prepare("SELECT idrole, name FROM role WHERE idrole = :id LIMIT 1");
+        $stmt->execute([':id' => $idrole]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    public function getAllRoles(): array
+    {
+        $stmt = $this->dbh->prepare("SELECT idrole, name FROM role ORDER BY idrole ASC");
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+}
